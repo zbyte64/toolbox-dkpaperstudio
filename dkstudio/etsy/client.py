@@ -33,13 +33,26 @@ def refresh_token():
     )
 
 
-def get(path):
+def paginate(path):
+    message = get(path)
+    count = message["count"]
+    yield message
+    index = len(message["results"])
+    while index < count:
+        message = get(path, offset=index)
+        yield message
+        index += len(message["results"])
+
+
+def get(path, **params):
     access_token = shop_storage.get("ETSY_ACCESS_TOKEN")
     assert access_token, 'Run "poetry run authorize-etsy"'
     api_key = os.environ["ETSY_CLIENT_ID"]
     url = f"https://openapi.etsy.com/v3/{path}"
     response = requests.get(
-        url, headers={"x-api-key": api_key, "Authorization": f"Bearer {access_token}"}
+        url,
+        params=params,
+        headers={"x-api-key": api_key, "Authorization": f"Bearer {access_token}"},
     )
     message = response.json()
     if not response.ok:

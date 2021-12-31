@@ -1,5 +1,4 @@
 from dkstudio.etsy import client
-from dkstudio import shop_storage
 
 
 def list_receipts(shop_id):
@@ -8,5 +7,6 @@ def list_receipts(shop_id):
 
 def main():
     from pprint import pprint
+    import sys
 
-    pprint(list_receipts(shop_storage.get("ETSY_USER_ID")))
+    pprint(list_receipts(sys.argv[1]))
