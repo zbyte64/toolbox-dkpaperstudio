@@ -27,7 +27,7 @@ oauth.register(
     access_token_url="https://api.etsy.com/v3/public/oauth/token",
     access_token_placement="uri",
     authorize_url="https://www.etsy.com/oauth/connect",
-    api_base_url="https://openapi.etsy.com/v3/",
+    api_base_url="https://openapi.etsy.com/v3",
     client_kwargs={
         "scope": "listings_r listings_w shops_r shops_w transactions_r email_r",
     },
@@ -133,4 +133,4 @@ def main():
     port = int(os.environ.get("ETSY_AUTH_PORT", 8000))
     webbrowser.open(f"http://{host}:{port}/login/etsy")
 
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run("dkstudio.etsy.authorize:app", host=host, port=port, reload=True)

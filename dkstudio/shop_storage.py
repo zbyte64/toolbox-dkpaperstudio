@@ -4,6 +4,10 @@ import os
 import json
 
 
+class NOT_SET:
+    pass
+
+
 def storage_path():
     home = expanduser("~")
     return os.environ.get("SHOP_STORAGE_PATH", join(home, "dkstudio-config.json"))
@@ -26,12 +30,16 @@ def write():
     json.dump(current, open(storage_path(), "w"), indent=2)
 
 
-def get(key, default=None):
-    if key not in read():
+def has(key):
+    return key in read()
+
+
+def get(key, default=NOT_SET):
+    if default is not NOT_SET and not has(key):
         # set default value
         set(key, default)
         return default
-    return read().get(key, default)
+    return read().get(key)
 
 
 def set(key, value):

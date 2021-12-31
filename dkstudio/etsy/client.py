@@ -35,7 +35,7 @@ def refresh_token():
 
 def get(path):
     access_token = shop_storage.get("ETSY_ACCESS_TOKEN")
-    assert access_token
+    assert access_token, 'Run "poetry run authorize-etsy"'
     api_key = os.environ["ETSY_CLIENT_ID"]
     url = f"https://openapi.etsy.com/v3/{path}"
     response = requests.get(
@@ -50,5 +50,6 @@ def get(path):
             refresh_token()
             return get(path)
         else:
+            # Run "poetry run authorize-etsy"
             raise RuntimeError(message.get("error"), message.get("error_description"))
     return message
