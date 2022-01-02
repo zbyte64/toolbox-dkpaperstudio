@@ -122,3 +122,27 @@ def put(path, data=None, json=None, files=None, **params):
             # Run "poetry run authorize-etsy"
             raise RuntimeError(message.get("error"), message.get("error_description"))
     return message
+
+
+def delete(path, **params):
+    access_token = shop_storage.get("ETSY_ACCESS_TOKEN")
+    assert access_token, 'Run "poetry run authorize-etsy"'
+    api_key = os.environ["ETSY_CLIENT_ID"]
+    url = f"https://openapi.etsy.com/v3/{path}"
+    response = requests.delete(
+        url,
+        params=params,
+        headers={"x-api-key": api_key, "Authorization": f"Bearer {access_token}"},
+    )
+    message = response.json()
+    if not response.ok:
+        if message == {
+            "error": "invalid_token",
+            "error_description": "access token is expired",
+        }:
+            refresh_token()
+            return delete(path, **params)
+        else:
+            # Run "poetry run authorize-etsy"
+            raise RuntimeError(message.get("error"), message.get("error_description"))
+    return message

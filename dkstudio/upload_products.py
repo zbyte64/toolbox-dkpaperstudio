@@ -2,6 +2,7 @@ import glob
 import os
 from dkstudio import shop_storage
 from dkstudio.etsy import client
+from dkstudio.etsy.list_products import populate_product_catalog
 
 # functions for finding an uploading products
 
@@ -21,17 +22,19 @@ def find_project_dirs(indir):
 
 def read_name_mapping_from_product_catalog():
     listing_ids = shop_storage.select_keys("products")
+    print("known listing_ids", listing_ids)
     lookups = {}
     for listing_id in listing_ids:
         product = shop_storage.select("products", listing_id)
         assert product, listing_id
-        tags = set(product.get("tags"))
-        is_mug_press = "Cricut Mug Press SVG" in tags or "Cricut Mug Press svg" in tags
+        tags = set(map(lambda x: x.lower(), product.get("tags")))
+        is_mug_press = "cricut mug press svg" in tags
         for sku in product.get("skus"):
             lookups[sku] = listing_id
             if is_mug_press:
                 lookups[sku + " Mug"] = listing_id
                 lookups[sku + " Mug Press"] = listing_id
+        lookups[product["title"]] = listing_id
     return lookups
 
 
@@ -47,24 +50,41 @@ def upload_product(shop_id, listing_id, zip_path):
         if ef.get("filetype").upper().endswith("ZIP"):
             listing_file_id = ef["listing_file_id"]
     filename = os.path.split(zip_path)[1]
+    print("uploading", zip_path)
     filep = open(zip_path, "rb")
     upload_response = client.post(
         f"/application/shops/{shop_id}/listings/{listing_id}/files",
-        data={"listing_file_id": listing_file_id, "name": filename}
-        if listing_file_id is not None
-        else {"name": filename},
-        files={"file": filep},
+        data={"name": filename},
+        files={"file": (filename, filep, "application/zip")},
     )
+    if listing_file_id:
+        print("Removing previous zipfile")
+        client.delete(
+            f"/application/shops/{shop_id}/listings/{listing_id}/files/{listing_file_id}"
+        )
     return upload_response
 
 
 # UI routines
 
-from tkinter import Button, Tk, HORIZONTAL
+from tkinter import Button, Tk
 
-from tkinter.ttk import Progressbar
 from tkinter.filedialog import askdirectory, askopenfilename
 from tkinter import messagebox
+
+from dkstudio.ux import iterate_with_dialog
+
+
+def find_zip_paths(project_dirs):
+    for apath in project_dirs:
+        cwd, project_dir = os.path.split(apath)
+        zip_file = os.path.join(apath, project_dir + ".zip")
+        if os.path.isdir(zip_file):
+            yield zip_file
+        else:
+            messagebox.showerror(
+                "Could not find product file", "Zip file not found %s" % zip_file
+            )
 
 
 class PackageApp(Tk):
@@ -98,8 +118,25 @@ class PackageApp(Tk):
             highlightbackground="#3E4149",
         )
         self.select_zipfile_btn.grid(row=2, column=0, padx=5, pady=5)
-        self.progress = Progressbar(
-            self, orient=HORIZONTAL, length=100, mode="indeterminate"
+        self.sync_product_catalog_btn = Button(
+            self,
+            text="Sync Product Catalog",
+            command=self.sync_product_catalog,
+            bg="black",
+            fg="black",
+            highlightbackground="#3E4149",
+        )
+        self.sync_product_catalog_btn.grid(row=3, column=0, padx=5, pady=5)
+        self.lookups = read_name_mapping_from_product_catalog()
+        self.shop_id = os.environ["ETSY_SHOP_ID"]
+
+    def sync_product_catalog(self):
+        iterate_with_dialog(
+            self, map(lambda p: p.get("title"), populate_product_catalog(self.shop_id))
+        )
+        self.lookups = read_name_mapping_from_product_catalog()
+        messagebox.showinfo(
+            "Updated product catalog", "%s products on file" % len(self.lookups)
         )
 
     def select_workspace(self):
@@ -108,11 +145,7 @@ class PackageApp(Tk):
             indir = askdirectory(
                 initialdir=os.getcwd(), mustexist=True, title="Select Workspace"
             )
-            shop_id = os.environ["ETSY_SHOP_ID"]
             if indir:
-                self.progress.grid(row=3, column=0)
-                self.progress.start()
-                lookups = read_name_mapping_from_product_catalog()
                 all_paths = find_project_dirs(indir)
                 if not all_paths:
                     messagebox.showerror(
@@ -125,31 +158,10 @@ class PackageApp(Tk):
                 )
                 if not confirm:
                     return
-                for apath in all_paths:
-                    self.progress.step(1)
-                    if os.path.isdir(apath):
-                        cwd, project_dir = os.path.split(apath)
-                        zip_path = os.path.join(apath, project_dir + ".zip")
-                        if not os.path.exists(zip_path):
-                            messagebox.showwarning(
-                                "warning",
-                                "Could not find zipfile for product '%s'" % project_dir,
-                            )
-                            continue
-                        product_name = project_dir.replace("_", " ")
-                        listing_id = lookups.get(product_name)
-                        if not listing_id:
-                            messagebox.showwarning(
-                                "warning",
-                                "Could not find listing id for product '%s'"
-                                % product_name,
-                            )
-                            continue
-                        upload_product(shop_id, listing_id, zip_path)
+                zip_paths = find_zip_paths(all_paths)
+                iterate_with_dialog(self, map(self.upload_product, zip_paths), count)
                 messagebox.showinfo("Done", "Uploaded %s product(s)" % count)
         finally:
-            self.progress.stop()
-            self.progress.grid_forget()
             self.select_workspace_btn["state"] = "normal"
 
     def select_folder(self):
@@ -158,11 +170,7 @@ class PackageApp(Tk):
             indir = askdirectory(
                 initialdir=os.getcwd(), mustexist=True, title="Select Project Folder"
             )
-            shop_id = os.environ["ETSY_SHOP_ID"]
             if indir:
-                self.progress.grid(row=3, column=0)
-                self.progress.start()
-                lookups = read_name_mapping_from_product_catalog()
                 all_paths = find_project_dirs(indir)
                 if not all_paths:
                     messagebox.showerror(
@@ -175,37 +183,11 @@ class PackageApp(Tk):
                         "Project files not found", "Project files not found"
                     )
                     return
-                for apath in all_paths:
-                    self.progress.step(1)
-                    if os.path.isdir(apath):
-                        project_dir = os.path.split(apath)[1]
-                        zip_path = os.path.join(apath, project_dir + ".zip")
-                        if not os.path.exists(zip_path):
-                            messagebox.showwarning(
-                                "warning",
-                                "Could not find zipfile for product '%s'" % project_dir,
-                            )
-                            continue
-                        product_name = project_dir.replace("_", " ")
-                        listing_id = lookups.get(product_name)
-                        if not listing_id:
-                            messagebox.showwarning(
-                                "warning",
-                                "Could not find listing id for product '%s'"
-                                % product_name,
-                            )
-                            continue
-                        confirm = messagebox.askokcancel(
-                            "Product Listing Found",
-                            "Product found on etsy, continue with upload?",
-                        )
-                        if not confirm:
-                            return
-                        upload_product(shop_id, listing_id, zip_path)
-                        messagebox.showinfo("Done", "Uploaded %s" % product_name)
+                zip_paths = find_zip_paths(all_paths)
+                iterate_with_dialog(
+                    self, map(self.upload_product_with_message, zip_paths), count
+                )
         finally:
-            self.progress.stop()
-            self.progress.grid_forget()
             self.select_folder_btn["state"] = "normal"
 
     def select_zipfile(self):
@@ -216,35 +198,38 @@ class PackageApp(Tk):
                 initialdir=os.getcwd(),
                 filetypes=[("Zip files", ".zip")],
             )
-            shop_id = os.environ["ETSY_SHOP_ID"]
             if zip_path:
-                self.progress.grid(row=3, column=0)
-                self.progress.start()
-                lookups = read_name_mapping_from_product_catalog()
-
-                self.progress.step(1)
-                _, project_filename = os.path.split(zip_path)
-
-                product_name = project_filename[: -len(".zip")].replace("_", " ")
-                listing_id = lookups.get(product_name)
-                if not listing_id:
-                    messagebox.showwarning(
-                        "warning",
-                        "Could not find listing id for product '%s'" % product_name,
-                    )
-                    return
-                confirm = messagebox.askokcancel(
-                    "Product Listing Found",
-                    "Product found on etsy, continue with upload?",
+                iterate_with_dialog(
+                    self, map(self.upload_product_with_message, [zip_path])
                 )
-                if not confirm:
-                    return
-                upload_product(shop_id, listing_id, zip_path)
-                messagebox.showinfo("Done", "Uploaded %s" % product_name)
         finally:
-            self.progress.stop()
-            self.progress.grid_forget()
             self.select_zipfile_btn["state"] = "normal"
+
+    def upload_product_with_message(self, zip_path):
+        product_name = self.upload_product(zip_path)
+        if product_name:
+            messagebox.showinfo("Done", "Uploaded %s" % product_name)
+        return product_name
+
+    def upload_product(self, zip_path):
+        _, project_filename = os.path.split(zip_path)
+
+        product_name = project_filename[: -len(".zip")].replace("_", " ")
+        listing_id = self.lookups.get(product_name)
+        if not listing_id:
+            messagebox.showwarning(
+                "warning",
+                "Could not find listing id for product '%s'" % product_name,
+            )
+            return
+        confirm = messagebox.askokcancel(
+            "Product Listing Found",
+            "Product found on etsy, continue with upload?",
+        )
+        if not confirm:
+            return
+        upload_product(self.shop_id, listing_id, zip_path)
+        return product_name
 
 
 def main():

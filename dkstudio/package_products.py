@@ -39,11 +39,12 @@ def find_product_dirs(indir):
 
 # UI routines
 
-from tkinter import Button, Tk, HORIZONTAL
+from tkinter import Button, Tk
 
-from tkinter.ttk import Progressbar
 from tkinter.filedialog import askdirectory
 from tkinter import messagebox
+
+from dkstudio.ux import iterate_with_dialog
 
 
 class PackageApp(Tk):
@@ -68,17 +69,12 @@ class PackageApp(Tk):
         )
         self.package_folder_btn.grid(row=0, column=0, padx=5, pady=5)
         self.package_workspace_btn.grid(row=1, column=0, padx=5, pady=5)
-        self.progress = Progressbar(
-            self, orient=HORIZONTAL, length=100, mode="indeterminate"
-        )
 
     def package_workspace(self):
         self.package_workspace_btn["state"] = "disabled"
         try:
             indir = askdirectory(initialdir=os.getcwd(), mustexist=True)
             if indir:
-                self.progress.grid(row=2, column=0)
-                self.progress.start()
                 all_paths = find_product_dirs(indir)
                 count = len(all_paths)
                 confirm = messagebox.askokcancel(
@@ -86,16 +82,9 @@ class PackageApp(Tk):
                 )
                 if not confirm:
                     return
-                for apath in all_paths:
-                    if os.path.isdir(apath):
-                        cwd, product_dir = os.path.split(apath)
-                        product_name = product_dir[: -len("_FILES")]
-                        package_product(cwd, product_dir, product_name + ".zip")
-                        self.progress.step(1)
+                iterate_with_dialog(self, map(self.package_product, all_paths), count)
                 messagebox.showinfo("information", "Packaged %s product(s)" % count)
         finally:
-            self.progress.stop()
-            self.progress.grid_forget()
             self.package_workspace_btn["state"] = "normal"
 
     def package_folder(self):
@@ -103,25 +92,32 @@ class PackageApp(Tk):
         try:
             indir = askdirectory(initialdir=os.getcwd(), mustexist=True)
             if indir:
-                self.progress.grid(row=2, column=0)
-                self.progress.start()
                 all_paths = find_product_dirs(indir)
                 count = len(all_paths)
                 if count != 1:
                     messagebox.showerror("error", "Could not find product folder")
                     return
-                for apath in all_paths:
-                    if os.path.isdir(apath):
-                        cwd, product_dir = os.path.split(apath)
-                        product_name = product_dir[: -len("_FILES")]
-                        filename = product_name + ".zip"
-                        package_product(cwd, product_dir, filename)
-                        self.progress.step(1)
-                        messagebox.showinfo("information", "Packaged %s" % filename)
+
+                iterate_with_dialog(
+                    self, map(self.package_product_with_message, all_paths), count
+                )
         finally:
-            self.progress.stop()
-            self.progress.grid_forget()
             self.package_folder_btn["state"] = "normal"
+
+    def package_product(self, apath):
+        if not os.path.isdir(apath):
+            messagebox.showerror("invalid path", "Path is not a directory %s" % apath)
+            return
+        cwd, product_dir = os.path.split(apath)
+        product_name = product_dir[: -len("_FILES")]
+        filename = product_name + ".zip"
+        package_product(cwd, product_dir, filename)
+        return filename
+
+    def package_product_with_message(self, apath):
+        filename = self.package_product(apath)
+        messagebox.showinfo("information", "Packaged %s" % filename)
+        return filename
 
 
 def main():
