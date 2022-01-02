@@ -44,52 +44,86 @@ from tkinter import Button, Tk, HORIZONTAL
 from tkinter.ttk import Progressbar
 from tkinter.filedialog import askdirectory
 from tkinter import messagebox
-import threading
 
 
 class PackageApp(Tk):
     def __init__(self):
         super().__init__()
         self.title("[DKPS]Product Packager")
-        self.btn = Button(
+        self.package_folder_btn = Button(
             self,
-            text="Package Products",
-            command=self.traitement,
+            text="Select Project Folder",
+            command=self.package_folder,
             bg="blue",
             fg="black",
             highlightbackground="#3E4149",
         )
-        self.btn.grid(row=0, column=0)
+        self.package_workspace_btn = Button(
+            self,
+            text="Select Workspace Folder",
+            command=self.package_workspace,
+            bg="blue",
+            fg="black",
+            highlightbackground="#3E4149",
+        )
+        self.package_folder_btn.grid(row=0, column=0, padx=5, pady=5)
+        self.package_workspace_btn.grid(row=1, column=0, padx=5, pady=5)
         self.progress = Progressbar(
             self, orient=HORIZONTAL, length=100, mode="indeterminate"
         )
 
-    def traitement(self):
-        def real_traitement():
+    def package_workspace(self):
+        self.package_workspace_btn["state"] = "disabled"
+        try:
             indir = askdirectory(initialdir=os.getcwd(), mustexist=True)
             if indir:
-                self.progress.grid(row=1, column=0)
+                self.progress.grid(row=2, column=0)
                 self.progress.start()
                 all_paths = find_product_dirs(indir)
                 count = len(all_paths)
-                assert len(all_paths), "Project files not found"
+                confirm = messagebox.askokcancel(
+                    "Projects found", f"Found {count} projects"
+                )
+                if not confirm:
+                    return
                 for apath in all_paths:
                     if os.path.isdir(apath):
                         cwd, product_dir = os.path.split(apath)
                         product_name = product_dir[: -len("_FILES")]
                         package_product(cwd, product_dir, product_name + ".zip")
                         self.progress.step(1)
-                self.progress.stop()
-                self.progress.grid_forget()
                 messagebox.showinfo("information", "Packaged %s product(s)" % count)
-            self.btn["state"] = "normal"
+        finally:
+            self.progress.stop()
+            self.progress.grid_forget()
+            self.package_workspace_btn["state"] = "normal"
 
-        self.btn["state"] = "disabled"
-        threading.Thread(target=real_traitement).start()
+    def package_folder(self):
+        self.package_folder_btn["state"] = "disabled"
+        try:
+            indir = askdirectory(initialdir=os.getcwd(), mustexist=True)
+            if indir:
+                self.progress.grid(row=2, column=0)
+                self.progress.start()
+                all_paths = find_product_dirs(indir)
+                count = len(all_paths)
+                if count != 1:
+                    messagebox.showerror("error", "Could not find product folder")
+                    return
+                for apath in all_paths:
+                    if os.path.isdir(apath):
+                        cwd, product_dir = os.path.split(apath)
+                        product_name = product_dir[: -len("_FILES")]
+                        filename = product_name + ".zip"
+                        package_product(cwd, product_dir, filename)
+                        self.progress.step(1)
+                        messagebox.showinfo("information", "Packaged %s" % filename)
+        finally:
+            self.progress.stop()
+            self.progress.grid_forget()
+            self.package_folder_btn["state"] = "normal"
 
 
 def main():
     app = PackageApp()
-
-    threading.Thread(target=app.traitement).start()
     app.mainloop()

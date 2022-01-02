@@ -91,8 +91,11 @@ def post(path, data=None, json=None, files=None, **params):
             return post(path, data, files, **params)
         else:
             # Run "poetry run authorize-etsy"
+            print(response.status_code)
+            print(message)
             raise RuntimeError(message.get("error"), message.get("error_description"))
     return message
+
 
 def put(path, data=None, json=None, files=None, **params):
     access_token = shop_storage.get("ETSY_ACCESS_TOKEN")
