@@ -134,8 +134,8 @@ def delete(path, **params):
         params=params,
         headers={"x-api-key": api_key, "Authorization": f"Bearer {access_token}"},
     )
-    message = response.json()
     if not response.ok:
+        message = response.json()
         if message == {
             "error": "invalid_token",
             "error_description": "access token is expired",
@@ -145,4 +145,4 @@ def delete(path, **params):
         else:
             # Run "poetry run authorize-etsy"
             raise RuntimeError(message.get("error"), message.get("error_description"))
-    return message
+    return None

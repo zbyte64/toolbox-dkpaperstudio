@@ -4,6 +4,8 @@ import glob
 import os
 import subprocess
 
+from dkstudio import shop_storage
+
 # functions for packaging up products
 
 COMMAND = "zip -r {destination} {source} -X"
@@ -54,7 +56,7 @@ class PackageApp(Tk):
         self.package_folder_btn = Button(
             self,
             text="Select Project Folder",
-            command=self.package_folder,
+            command=self.click_package_folder,
             bg="blue",
             fg="black",
             highlightbackground="#3E4149",
@@ -62,7 +64,7 @@ class PackageApp(Tk):
         self.package_workspace_btn = Button(
             self,
             text="Select Workspace Folder",
-            command=self.package_workspace,
+            command=self.click_package_workspace,
             bg="blue",
             fg="black",
             highlightbackground="#3E4149",
@@ -70,10 +72,13 @@ class PackageApp(Tk):
         self.package_folder_btn.grid(row=0, column=0, padx=5, pady=5)
         self.package_workspace_btn.grid(row=1, column=0, padx=5, pady=5)
 
-    def package_workspace(self):
+    def click_package_workspace(self):
         self.package_workspace_btn["state"] = "disabled"
         try:
-            indir = askdirectory(initialdir=os.getcwd(), mustexist=True)
+            indir = askdirectory(
+                initialdir=shop_storage.get("workspace_path", os.getcwd()),
+                mustexist=True,
+            )
             if indir:
                 all_paths = find_product_dirs(indir)
                 count = len(all_paths)
@@ -84,13 +89,17 @@ class PackageApp(Tk):
                     return
                 iterate_with_dialog(self, map(self.package_product, all_paths), count)
                 messagebox.showinfo("information", "Packaged %s product(s)" % count)
+                shop_storage.set("workspace_path", indir)
         finally:
             self.package_workspace_btn["state"] = "normal"
 
-    def package_folder(self):
+    def click_package_folder(self):
         self.package_folder_btn["state"] = "disabled"
         try:
-            indir = askdirectory(initialdir=os.getcwd(), mustexist=True)
+            indir = askdirectory(
+                initialdir=shop_storage.get("workspace_path", os.getcwd()),
+                mustexist=True,
+            )
             if indir:
                 all_paths = find_product_dirs(indir)
                 count = len(all_paths)

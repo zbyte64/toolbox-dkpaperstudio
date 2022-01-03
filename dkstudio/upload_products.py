@@ -47,16 +47,28 @@ def upload_product(shop_id, listing_id, zip_path):
     print(existing_files)
     listing_file_id = None
     for ef in existing_files:
-        if ef.get("filetype").upper().endswith("ZIP"):
+        if ef.get("filetype") == "application/zip":
             listing_file_id = ef["listing_file_id"]
     filename = os.path.split(zip_path)[1]
     print("uploading", zip_path)
     filep = open(zip_path, "rb")
-    upload_response = client.post(
-        f"/application/shops/{shop_id}/listings/{listing_id}/files",
-        data={"name": filename},
-        files={"file": (filename, filep, "application/zip")},
-    )
+    try:
+        upload_response = client.post(
+            f"/application/shops/{shop_id}/listings/{listing_id}/files",
+            data={"name": filename},
+            files={"file": (filename, filep, "application/zip")},
+        )
+    except Exception as e:
+        if listing_file_id:
+            if (
+                e.args[0]
+                == f"File {listing_file_id} is already attached to this listing."
+            ):
+                messagebox.showinfo(
+                    "Zipfile already uploaded", f"{filename} is already uploaded"
+                )
+                return False
+        raise
     if listing_file_id:
         print("Removing previous zipfile")
         client.delete(
@@ -79,7 +91,7 @@ def find_zip_paths(project_dirs):
     for apath in project_dirs:
         cwd, project_dir = os.path.split(apath)
         zip_file = os.path.join(apath, project_dir + ".zip")
-        if os.path.isdir(zip_file):
+        if os.path.isfile(zip_file):
             yield zip_file
         else:
             messagebox.showerror(
@@ -93,7 +105,7 @@ class PackageApp(Tk):
         self.title("[DKPS]Product Uploader")
         self.select_folder_btn = Button(
             self,
-            text="Select Project Folder",
+            text="Upload from Project Folder",
             command=self.select_folder,
             bg="black",
             fg="black",
@@ -102,7 +114,7 @@ class PackageApp(Tk):
         self.select_folder_btn.grid(row=0, column=0, padx=5, pady=5)
         self.select_workspace_btn = Button(
             self,
-            text="Select Workspace Folder",
+            text="Upload from Workspace Folder",
             command=self.select_workspace,
             bg="black",
             fg="black",
@@ -111,7 +123,7 @@ class PackageApp(Tk):
         self.select_workspace_btn.grid(row=1, column=0, padx=5, pady=5)
         self.select_zipfile_btn = Button(
             self,
-            text="Select Product Zipfile",
+            text="Upload Product Zipfile",
             command=self.select_zipfile,
             bg="black",
             fg="black",
@@ -143,7 +155,9 @@ class PackageApp(Tk):
         self.select_workspace_btn["state"] = "disabled"
         try:
             indir = askdirectory(
-                initialdir=os.getcwd(), mustexist=True, title="Select Workspace"
+                initialdir=shop_storage.get("workspace_path", os.getcwd()),
+                mustexist=True,
+                title="Select Workspace",
             )
             if indir:
                 all_paths = find_project_dirs(indir)
@@ -161,6 +175,7 @@ class PackageApp(Tk):
                 zip_paths = find_zip_paths(all_paths)
                 iterate_with_dialog(self, map(self.upload_product, zip_paths), count)
                 messagebox.showinfo("Done", "Uploaded %s product(s)" % count)
+                shop_storage.set("workspace_path", indir)
         finally:
             self.select_workspace_btn["state"] = "normal"
 
@@ -168,7 +183,9 @@ class PackageApp(Tk):
         self.select_folder_btn["state"] = "disabled"
         try:
             indir = askdirectory(
-                initialdir=os.getcwd(), mustexist=True, title="Select Project Folder"
+                initialdir=shop_storage.get("workspace_path", os.getcwd()),
+                mustexist=True,
+                title="Select Project Folder",
             )
             if indir:
                 all_paths = find_project_dirs(indir)
@@ -195,7 +212,7 @@ class PackageApp(Tk):
         try:
             zip_path = askopenfilename(
                 title="Select Product Zipfile",
-                initialdir=os.getcwd(),
+                initialdir=shop_storage.get("workspace_path", os.getcwd()),
                 filetypes=[("Zip files", ".zip")],
             )
             if zip_path:
@@ -228,7 +245,8 @@ class PackageApp(Tk):
         )
         if not confirm:
             return
-        upload_product(self.shop_id, listing_id, zip_path)
+        if upload_product(self.shop_id, listing_id, zip_path) is False:
+            return
         return product_name
 
 
