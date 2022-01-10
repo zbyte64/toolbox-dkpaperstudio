@@ -1,8 +1,9 @@
-from os.path import exists, expanduser, join
+from os.path import exists, expanduser, join, abspath, split
 from functools import lru_cache
 import os
 import json
 import shutil
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -14,13 +15,21 @@ class NOT_SET:
     pass
 
 
+def src_dir() -> str:
+    return split(abspath(__file__))[0]
+
+
+def root_dir() -> str:
+    return split(src_dir())[0]
+
+
 def storage_dir() -> str:
-    home = expanduser("~")
+    home = root_dir()
     return os.environ.get("SHOP_STORAGE_DIR", join(home, "dkstudio-toolbox-storage"))
 
 
 def storage_path() -> str:
-    home = expanduser("~")
+    home = root_dir()
     return os.environ.get("SHOP_STORAGE_PATH", join(home, "dkstudio-config.json"))
 
 
@@ -87,3 +96,15 @@ def select(namespace: str, id: str):
     if not os.path.exists(dest):
         return None
     return json.load(open(dest, "r"))
+
+
+def write_file_metadata(path: str, data: Any):
+    cp = path + ".dkps.json"
+    json.dump(data, open(cp, "w"), indent=2)
+
+
+def read_file_metadata(path: str, default=None) -> Any:
+    cp = path + ".dkps.json"
+    if not os.path.exists(cp):
+        return default
+    return json.load(open(cp, "r"))

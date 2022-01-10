@@ -1,6 +1,8 @@
+import time
 import glob
 import os
 from dkstudio import shop_storage
+from dkstudio.package_products import package_product
 from dkstudio.etsy import client
 from dkstudio.etsy.list_products import populate_product_catalog
 
@@ -84,7 +86,7 @@ from tkinter import Button, Tk
 from tkinter.filedialog import askdirectory, askopenfilename
 from tkinter import messagebox
 
-from dkstudio.ux import iterate_with_dialog
+from dkstudio.ux import iterate_with_dialog, prompt_selection
 
 
 def find_zip_paths(project_dirs):
@@ -97,6 +99,27 @@ def find_zip_paths(project_dirs):
             messagebox.showerror(
                 "Could not find product file", "Zip file not found %s" % zip_file
             )
+
+
+class EtsyWorkflow:
+    @staticmethod
+    def associate_product_dir_with_listing(product_folder: str, config: dict):
+        shop_storage.write_file_metadata(product_folder, config)
+        shop_storage.persist(
+            "etsy-product-dir", config["etsy_listing_id"], product_folder
+        )
+
+    @staticmethod
+    def get_unmapped_products():
+        listing_ids = filter(
+            lambda listing_id: shop_storage.select("etsy-product-dir", listing_id)
+            is None,
+            shop_storage.select_keys("products"),
+        )
+        available_listings = [
+            shop_storage.select("products", listing_id) for listing_id in listing_ids
+        ]
+        return available_listings
 
 
 class PackageApp(Tk):
@@ -147,6 +170,45 @@ class PackageApp(Tk):
             self, map(lambda p: p.get("title"), populate_product_catalog(self.shop_id))
         )
         self.lookups = read_name_mapping_from_product_catalog()
+
+        workspace_dir = askdirectory(
+            initialdir=shop_storage.get("workspace_path", os.getcwd()),
+            mustexist=True,
+            title="Select Workspace",
+        )
+        product_folders = glob.glob(os.path.join(workspace_dir, "*", "*_FILES"))
+        listing_ids = set(shop_storage.select_keys("products"))
+        to_resolve = []
+        for product_folder in product_folders:
+            config = shop_storage.read_file_metadata(product_folder, {})
+            product_name = os.path.split(product_folder)[1][: -len("_FILES")].replace(
+                "_", " "
+            )
+            if "etsy_listing_id" in config and config["etsy_listing_id"] in listing_ids:
+                listing_ids.remove(config["etsy_listing_id"])
+                continue
+            if "product_name" not in config:
+                config["product_name"] = product_name
+            if product_name in self.lookups:
+                config["etsy_listing_id"] = self.lookups[product_name]
+                EtsyWorkflow.associate_product_dir_with_listing(product_folder, config)
+            else:
+                # select on of...
+                to_resolve.append((config, product_folder))
+            shop_storage.write_file_metadata(product_folder, config)
+        available_listings = [
+            shop_storage.select("products", listing_id) for listing_id in listing_ids
+        ]
+        for (config, product_folder) in to_resolve:
+            product_name = config["product_name"]
+            options = [av["title"] for av in available_listings]
+            index = prompt_selection(
+                self, f'Which esty product is "{product_name}"?', options
+            )
+            if index is not None:
+                config["etsy_listing_id"] = available_listings.pop(index)["listing_id"]
+                EtsyWorkflow.associate_product_dir_with_listing(product_folder, config)
+
         messagebox.showinfo(
             "Updated product catalog", "%s products on file" % len(self.lookups)
         )
@@ -229,24 +291,76 @@ class PackageApp(Tk):
         return product_name
 
     def upload_product(self, zip_path):
-        _, project_filename = os.path.split(zip_path)
+        product_dir, project_filename = os.path.split(zip_path)
+        product_src = os.path.join(product_dir, project_filename + "_FILES")
+        if not os.path.exists(product_src):
+            messagebox.showwarning(
+                "warning",
+                "Could not find product directory '%s', skipped product upload"
+                % product_src,
+            )
+            return
+        metadata = shop_storage.read_file_metadata(product_src)
+        if not metadata:
+            available_listings = EtsyWorkflow.get_unmapped_products()
+            product_name = project_filename.splate("_", " ")
+            metadata = config = {"product_name": product_name}
+            options = [av["title"] for av in available_listings]
+            index = prompt_selection(
+                self, f'Which esty product is "{product_name}"?', options
+            )
+            if index is not None:
+                config["etsy_listing_id"] = available_listings.pop(index)["listing_id"]
+                EtsyWorkflow.associate_product_dir_with_listing(product_src, config)
+            else:
+                messagebox.showwarning(
+                    "warning",
+                    "Could not find product metadata for '%s', skipped product upload"
+                    % product_src,
+                )
+                return
 
-        product_name = project_filename[: -len(".zip")].replace("_", " ")
-        listing_id = self.lookups.get(product_name)
+        zip_modified_time = os.path.getmtime(zip_path)
+        if zip_modified_time < os.path.getmtime(product_src):
+            zip_response = messagebox.askyesnocancel(
+                "Zipfile is stale:",
+                f"Product '{product_name}' has been modified since the zipfile has been created, should we update the zipfile?",
+            )
+            if zip_response is None:
+                return
+            if zip_response:
+                # update zip
+                package_product(product_dir, product_src, zip_path)
+                zip_modified_time = os.path.getmtime(zip_path)
+
+        last_upload = metadata.get("last_upload")
+        if last_upload is not None and last_upload >= zip_modified_time:
+            confirm = messagebox.askokcancel(
+                "Product is already up to date",
+                f"Product '{product_name}' has an upload timestamp newer than the zipfile, continue with upload?",
+            )
+            if not confirm:
+                return
+
+        listing_id = metadata.get("etsy_listing_id", None)
+        product_name = metadata.get("product_name", None)
+
         if not listing_id:
             messagebox.showwarning(
                 "warning",
-                "Could not find listing id for product '%s'" % product_name,
+                f"Could not find listing id for product {product_name} '{listing_id}', skipped product upload",
             )
             return
         confirm = messagebox.askokcancel(
             "Product Listing Found",
-            "Product found on etsy, continue with upload?",
+            f"Product '{product_name}' found on etsy: '{listing_id}', continue with upload?",
         )
         if not confirm:
             return
         if upload_product(self.shop_id, listing_id, zip_path) is False:
             return
+        metadata["last_upload"] = time.time()
+        shop_storage.write_file_metadata(product_src, metadata)
         return product_name
 
 

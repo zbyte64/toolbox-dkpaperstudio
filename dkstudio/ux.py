@@ -31,3 +31,11 @@ def iterate_with_dialog(root: Tk, iterable: Iterable, maximum: int = None):
         messagebox.showerror("Unhandled exception", str(e))
     finally:
         t.destroy()
+
+
+def prompt_selection(
+    root: Tk,
+    title: str,
+    options: list[str],
+):
+    pass
