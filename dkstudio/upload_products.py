@@ -86,7 +86,7 @@ from tkinter import Button, Tk
 from tkinter.filedialog import askdirectory, askopenfilename
 from tkinter import messagebox
 
-from dkstudio.ux import iterate_with_dialog, prompt_selection
+from dkstudio.ux import iterate_with_dialog, asklist
 
 
 def find_zip_paths(project_dirs):
@@ -202,8 +202,10 @@ class PackageApp(Tk):
         for (config, product_folder) in to_resolve:
             product_name = config["product_name"]
             options = [av["title"] for av in available_listings]
-            index = prompt_selection(
-                self, f'Which esty product is "{product_name}"?', options
+            index = asklist(
+                "Please map product",
+                f'Which esty product is "{product_name}"?',
+                options,
             )
             if index is not None:
                 config["etsy_listing_id"] = available_listings.pop(index)["listing_id"]
@@ -306,8 +308,10 @@ class PackageApp(Tk):
             product_name = project_filename.splate("_", " ")
             metadata = config = {"product_name": product_name}
             options = [av["title"] for av in available_listings]
-            index = prompt_selection(
-                self, f'Which esty product is "{product_name}"?', options
+            index = asklist(
+                "Please map product",
+                f'Which esty product is "{product_name}"?',
+                items=options,
             )
             if index is not None:
                 config["etsy_listing_id"] = available_listings.pop(index)["listing_id"]
