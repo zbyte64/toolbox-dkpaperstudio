@@ -35,7 +35,7 @@ def iterate_with_dialog(root: Tk, iterable: Iterable, maximum: int = None):
 
 
 class ListDialog(Dialog):
-    def __init__(self, title, prompt, items, parent=None):
+    def __init__(self, title: str, prompt: str, items: list[str], parent=None):
         self.prompt = prompt
         self.items = items
 
@@ -55,7 +55,10 @@ class ListDialog(Dialog):
         return 1
 
     def getresult(self):
-        return self.entry.get()
+        try:
+            return self.items.index(self.entry.get())
+        except ValueError:
+            return None
 
 
 def asklist(

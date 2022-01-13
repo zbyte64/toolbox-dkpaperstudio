@@ -73,7 +73,7 @@ def update(params: dict):
 
 
 def persist(namespace: str, id: str, obj):
-    dest = os.path.join(storage_dir(), namespace, id + ".json")
+    dest = os.path.join(storage_dir(), namespace, f"{id}.json")
     dest_dir = os.path.split(dest)[0]
     os.makedirs(dest_dir, exist_ok=True)
     json.dump(obj, open(dest, "w"), indent=2)
@@ -92,7 +92,7 @@ def select_keys(namespace: str):
 
 
 def select(namespace: str, id: str):
-    dest = os.path.join(storage_dir(), namespace, id + ".json")
+    dest = os.path.join(storage_dir(), namespace, f"{id}.json")
     if not os.path.exists(dest):
         return None
     return json.load(open(dest, "r"))

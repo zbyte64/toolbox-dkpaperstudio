@@ -85,6 +85,7 @@ from tkinter import Button, Tk
 
 from tkinter.filedialog import askdirectory, askopenfilename
 from tkinter import messagebox
+from tkinter.ttk import Style
 
 from dkstudio.ux import iterate_with_dialog, asklist
 
@@ -130,36 +131,24 @@ class PackageApp(Tk):
             self,
             text="Upload from Project Folder",
             command=self.select_folder,
-            bg="black",
-            fg="black",
-            highlightbackground="#3E4149",
         )
         self.select_folder_btn.grid(row=0, column=0, padx=5, pady=5)
         self.select_workspace_btn = Button(
             self,
             text="Upload from Workspace Folder",
             command=self.select_workspace,
-            bg="black",
-            fg="black",
-            highlightbackground="#3E4149",
         )
         self.select_workspace_btn.grid(row=1, column=0, padx=5, pady=5)
         self.select_zipfile_btn = Button(
             self,
             text="Upload Product Zipfile",
             command=self.select_zipfile,
-            bg="black",
-            fg="black",
-            highlightbackground="#3E4149",
         )
         self.select_zipfile_btn.grid(row=2, column=0, padx=5, pady=5)
         self.sync_product_catalog_btn = Button(
             self,
             text="Sync Product Catalog",
             command=self.sync_product_catalog,
-            bg="black",
-            fg="black",
-            highlightbackground="#3E4149",
         )
         self.sync_product_catalog_btn.grid(row=3, column=0, padx=5, pady=5)
         self.lookups = read_name_mapping_from_product_catalog()
@@ -212,7 +201,7 @@ class PackageApp(Tk):
                 EtsyWorkflow.associate_product_dir_with_listing(product_folder, config)
 
         messagebox.showinfo(
-            "Updated product catalog", "%s products on file" % len(self.lookups)
+            "Updated product catalog", "Mapped %s products" % len(product_folders)
         )
 
     def select_workspace(self):
@@ -294,7 +283,9 @@ class PackageApp(Tk):
 
     def upload_product(self, zip_path):
         product_dir, project_filename = os.path.split(zip_path)
-        product_src = os.path.join(product_dir, project_filename + "_FILES")
+        product_src = os.path.join(
+            product_dir, os.path.splitext(project_filename)[0] + "_FILES"
+        )
         if not os.path.exists(product_src):
             messagebox.showwarning(
                 "warning",
@@ -363,12 +354,15 @@ class PackageApp(Tk):
             return
         if upload_product(self.shop_id, listing_id, zip_path) is False:
             return
-        metadata["last_upload"] = time.time()
+        metadata["last_upload"] = zip_modified_time
         shop_storage.write_file_metadata(product_src, metadata)
         return product_name
 
 
 def main():
     app = PackageApp()
+    s = Style(app)
+    if "aqua" in s.theme_names():
+        s.theme_use("aqua")
 
     app.mainloop()
