@@ -1,3 +1,5 @@
 .DS_store
 .env
 __pycache__
+dkstudio-config.json
+dkstudio-toolbox-storage
