@@ -366,6 +366,7 @@ class PackageApp(Tk):
         )
         if not confirm:
             return
+        self.update()
         if upload_product(self.shop_id, listing_id, zip_path) is False:
             return
         metadata["last_upload"] = zip_modified_time
