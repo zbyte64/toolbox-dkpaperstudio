@@ -166,7 +166,12 @@ class PackageApp(Tk):
             mustexist=True,
             title="Select Workspace",
         )
-        product_folders = glob.glob(os.path.join(workspace_dir, "*", "*_FILES"))
+        search = os.path.join(workspace_dir, "*_FILES")
+        for i in range(2):
+            search = os.path.join("*", search)
+            product_folders = glob.glob(search)
+            if len(product_folders):
+                break
         listing_ids = set(shop_storage.select_keys("products"))
         to_resolve = []
         mapped_count = 0
@@ -281,11 +286,13 @@ class PackageApp(Tk):
         available_listings = EtsyWorkflow.get_unmapped_products()
         config = {"product_name": product_name}
         options = [av["title"] for av in available_listings]
-        likely_options: list = process.extract(product_name, options, limit=5)
+        likely_options: list = [
+            label for label, score in process.extract(product_name, options, limit=5)
+        ]
         likely_index = asklist(
             "Please map product",
             f'Which esty product is "{product_name}"?',
-            items=likely_options,
+            likely_options,
         )
         index = (
             options.index(likely_options[likely_index])
