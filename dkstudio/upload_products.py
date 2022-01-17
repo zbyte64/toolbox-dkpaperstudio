@@ -1,6 +1,5 @@
 import glob
 import os
-from dkstudio.etsy import list_products
 from thefuzz import process
 from dkstudio import shop_storage
 from dkstudio.package_products import package_product
@@ -10,17 +9,32 @@ from dkstudio.etsy.list_products import populate_product_catalog
 # functions for finding an uploading products
 
 
-def find_project_dirs(indir):
-    # project dir contains an _FILES product folder
-    # TODO: and a zip file
+def find_product_dirs(indir: str, depth: int = 2):
+    # product dir ends with _FILES
+    if indir.endswith("_FILES"):
+        return [indir]
     search = "*_FILES"
-    for i in range(2):
+    # perform depth search
+    for i in range(depth):
         all_paths = glob.glob(os.path.join(indir, search))
         if len(all_paths):
-            return [os.path.split(p)[0] for p in all_paths]
+            return all_paths
         else:
             search = "*/" + search
     return None
+
+
+def find_project_dirs(indir: str):
+    # project dir contains an _FILES product folder
+    all_paths = find_product_dirs(indir)
+    if len(all_paths):
+        return [os.path.split(p)[0] for p in all_paths]
+    return all_paths
+
+
+def get_project_name_from_project_dir(project_dir: str):
+    assert project_dir.endswith("_FILES")
+    return os.path.split(project_dir)[1][: -len("_FILES")].replace("_", " ").strip()
 
 
 def read_name_mapping_from_product_catalog():
@@ -91,16 +105,38 @@ from tkinter.ttk import Style
 from dkstudio.ux import iterate_with_dialog, asklist
 
 
-def find_zip_paths(project_dirs):
+def find_zip_paths(project_dirs: list[str]):
     for apath in project_dirs:
-        cwd, project_dir = os.path.split(apath)
-        zip_file = os.path.join(apath, project_dir + ".zip")
+        if apath.endswith("_FILES"):
+            product_dirs = [apath]
+        else:
+            product_dirs = glob.glob(os.path.join(apath, "*_FILES"))
+        if not product_dirs:
+            messagebox.showerror(
+                "Could not find product file", "Product dir not found in %s" % apath
+            )
+            continue
+        product_dir = product_dirs[0]
+        zip_file = os.path.join(apath, product_dir[: -len("_FILES")] + ".zip")
         if os.path.isfile(zip_file):
             yield zip_file
         else:
-            messagebox.showerror(
-                "Could not find product file", "Zip file not found %s" % zip_file
+            # generate?
+            product_name = get_project_name_from_project_dir(product_dir)
+            zip_response = messagebox.askyesno(
+                "Zipfile is stale:",
+                f"Product '{product_name}' has been modified since the zipfile has been created, should we update the zipfile?",
             )
+            if zip_response:
+                # update zip
+                package_product(product_dir, product_dir, zip_file)
+                messagebox.showinfo(
+                    "Packaged product", "Zip file created %s" % zip_file
+                )
+            else:
+                messagebox.showerror(
+                    "Could not find product file", "Zip file not found %s" % zip_file
+                )
 
 
 class EtsyWorkflow:
@@ -166,25 +202,25 @@ class PackageApp(Tk):
             mustexist=True,
             title="Select Workspace",
         )
-        search = os.path.join(workspace_dir, "*_FILES")
-        for i in range(2):
-            search = os.path.join("*", search)
-            product_folders = glob.glob(search)
-            if len(product_folders):
-                break
+        product_folders = find_product_dirs(workspace_dir)
+        if not product_folders:
+            messagebox.showwarning(
+                "No Products Found", "No product folders ending with _FILES found"
+            )
+            return
         listing_ids = set(shop_storage.select_keys("products"))
         to_resolve = []
         mapped_count = 0
         for product_folder in product_folders:
             config = shop_storage.read_file_metadata(product_folder, {})
-            product_name = os.path.split(product_folder)[1][: -len("_FILES")].replace(
-                "_", " "
-            )
+            product_name = get_project_name_from_project_dir(product_folder)
+            # skip if listing is already mapped
             if "etsy_listing_id" in config and config["etsy_listing_id"] in listing_ids:
                 listing_ids.remove(config["etsy_listing_id"])
                 continue
             if "product_name" not in config:
                 config["product_name"] = product_name
+            # auto associate on direct match (ie sku)
             if product_name in self.lookups:
                 config["etsy_listing_id"] = self.lookups[product_name]
                 EtsyWorkflow.associate_product_dir_with_listing(product_folder, config)
@@ -212,15 +248,15 @@ class PackageApp(Tk):
                 title="Select Workspace",
             )
             if indir:
-                all_paths = find_project_dirs(indir)
+                all_paths = find_product_dirs(indir)
                 if not all_paths:
                     messagebox.showerror(
-                        "Project files not found", "Project files not found"
+                        "Product files not found", "Product files not found"
                     )
                     return
                 count = len(all_paths)
                 confirm = messagebox.askokcancel(
-                    "Projects found", f"Found {count} projects, continue with upload?"
+                    "Products found", f"Found {count} products, continue with upload?"
                 )
                 if not confirm:
                     return
@@ -240,16 +276,16 @@ class PackageApp(Tk):
                 title="Select Project Folder",
             )
             if indir:
-                all_paths = find_project_dirs(indir)
+                all_paths = find_product_dirs(indir)
                 if not all_paths:
                     messagebox.showerror(
-                        "Project files not found", "Project files not found"
+                        "Product files not found", "Product files not found"
                     )
                     return
                 count = len(all_paths)
                 if not count == 1:
                     messagebox.showerror(
-                        "Project files not found", "Project files not found"
+                        "Product files not found", "Product files not found"
                     )
                     return
                 zip_paths = find_zip_paths(all_paths)
@@ -281,8 +317,7 @@ class PackageApp(Tk):
         return product_name
 
     def prompt_for_product_association(self, product_src: str):
-        assert product_src.endswith("_FILES")
-        product_name = os.path.split(product_src)[1][: -len("_FILES")].replace("_", " ")
+        product_name = get_project_name_from_project_dir(product_src)
         available_listings = EtsyWorkflow.get_unmapped_products()
         config = {"product_name": product_name}
         options = [av["title"] for av in available_listings]

@@ -46,7 +46,7 @@ class ListDialog(Dialog):
         l.pack()
         s = StringVar(master)
         self.string_var = s
-        self.entry = Combobox(master, values=self.items, textvariable=s)
+        self.entry = Combobox(master, values=self.items, textvariable=s, width=100)
         self.entry.pack()
         return self.entry
 
