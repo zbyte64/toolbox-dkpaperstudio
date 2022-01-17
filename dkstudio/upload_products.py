@@ -1,6 +1,7 @@
-import time
 import glob
 import os
+from dkstudio.etsy import list_products
+from thefuzz import process
 from dkstudio import shop_storage
 from dkstudio.package_products import package_product
 from dkstudio.etsy import client
@@ -168,6 +169,7 @@ class PackageApp(Tk):
         product_folders = glob.glob(os.path.join(workspace_dir, "*", "*_FILES"))
         listing_ids = set(shop_storage.select_keys("products"))
         to_resolve = []
+        mapped_count = 0
         for product_folder in product_folders:
             config = shop_storage.read_file_metadata(product_folder, {})
             product_name = os.path.split(product_folder)[1][: -len("_FILES")].replace(
@@ -181,27 +183,19 @@ class PackageApp(Tk):
             if product_name in self.lookups:
                 config["etsy_listing_id"] = self.lookups[product_name]
                 EtsyWorkflow.associate_product_dir_with_listing(product_folder, config)
+                mapped_count += 1
             else:
                 # select on of...
-                to_resolve.append((config, product_folder))
+                to_resolve.append(product_folder)
             shop_storage.write_file_metadata(product_folder, config)
-        available_listings = [
-            shop_storage.select("products", listing_id) for listing_id in listing_ids
-        ]
-        for (config, product_folder) in to_resolve:
-            product_name = config["product_name"]
-            options = [av["title"] for av in available_listings]
-            index = asklist(
-                "Please map product",
-                f'Which esty product is "{product_name}"?',
-                options,
-            )
-            if index is not None:
-                config["etsy_listing_id"] = available_listings.pop(index)["listing_id"]
-                EtsyWorkflow.associate_product_dir_with_listing(product_folder, config)
+        for product_folder in to_resolve:
+            if self.prompt_for_product_association(product_folder) is None:
+                break
+            else:
+                mapped_count += 1
 
         messagebox.showinfo(
-            "Updated product catalog", "Mapped %s products" % len(product_folders)
+            "Updated product catalog", "Mapped %s products" % mapped_count
         )
 
     def select_workspace(self):
@@ -281,6 +275,35 @@ class PackageApp(Tk):
             messagebox.showinfo("Done", "Uploaded %s" % product_name)
         return product_name
 
+    def prompt_for_product_association(self, product_src: str):
+        assert product_src.endswith("_FILES")
+        product_name = os.path.split(product_src)[1][: -len("_FILES")].replace("_", " ")
+        available_listings = EtsyWorkflow.get_unmapped_products()
+        config = {"product_name": product_name}
+        options = [av["title"] for av in available_listings]
+        likely_options: list = process.extract(product_name, options, limit=5)
+        likely_index = asklist(
+            "Please map product",
+            f'Which esty product is "{product_name}"?',
+            items=likely_options,
+        )
+        index = (
+            options.index(likely_options[likely_index])
+            if likely_index is not None
+            else None
+        )
+        if index is not None:
+            config["etsy_listing_id"] = available_listings[index]["listing_id"]
+            EtsyWorkflow.associate_product_dir_with_listing(product_src, config)
+            return config["etsy_listing_id"]
+        else:
+            messagebox.showwarning(
+                "warning",
+                "Could not find product metadata for '%s', skipped product upload"
+                % product_src,
+            )
+            return False
+
     def upload_product(self, zip_path):
         product_dir, project_filename = os.path.split(zip_path)
         product_src = os.path.join(
@@ -294,26 +317,11 @@ class PackageApp(Tk):
             )
             return
         metadata = shop_storage.read_file_metadata(product_src)
-        if not metadata:
-            available_listings = EtsyWorkflow.get_unmapped_products()
-            product_name = project_filename.splate("_", " ")
-            metadata = config = {"product_name": product_name}
-            options = [av["title"] for av in available_listings]
-            index = asklist(
-                "Please map product",
-                f'Which esty product is "{product_name}"?',
-                items=options,
-            )
-            if index is not None:
-                config["etsy_listing_id"] = available_listings.pop(index)["listing_id"]
-                EtsyWorkflow.associate_product_dir_with_listing(product_src, config)
-            else:
-                messagebox.showwarning(
-                    "warning",
-                    "Could not find product metadata for '%s', skipped product upload"
-                    % product_src,
-                )
+        if not metadata or "etsy_listing_id" not in metadata:
+            if not self.prompt_for_product_association(product_src):
                 return
+            metadata = shop_storage.read_file_metadata(product_src)
+        product_name = metadata["product_name"]
 
         zip_modified_time = os.path.getmtime(zip_path)
         if zip_modified_time < os.path.getmtime(product_src):
@@ -338,7 +346,6 @@ class PackageApp(Tk):
                 return
 
         listing_id = metadata.get("etsy_listing_id", None)
-        product_name = metadata.get("product_name", None)
 
         if not listing_id:
             messagebox.showwarning(
